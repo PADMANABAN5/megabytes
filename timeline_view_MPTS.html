@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Compact Gantt Chart Editor</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+      --blue: #2563eb;
+      --blue-soft: #dbeafe;
+      --purple: #7c3aed;
+      --purple-soft: #ede9fe;
+      --green: #059669;
+      --green-soft: #d1fae5;
+      --amber: #d97706;
+      --amber-soft: #fef3c7;
+      --cell-w: 32px;
+      --label-w: 220px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .header {
+      margin-bottom: 12px;
+    }
+
+    .title {
+      margin: 0 0 4px;
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .subtitle {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .panel, .board {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel {
+      padding: 12px;
+      max-height: calc(100vh - 60px);
+      overflow: auto;
+    }
+
+    .board {
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Board top bar: legend + fullscreen button ── */
+    .board-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px 0;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+    }
+
+    .fs-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      background: white;
+      color: #374151;
+      transition: background 0.15s, box-shadow 0.15s;
+      flex-shrink: 0;
+    }
+
+    .fs-btn:hover {
+      background: #f3f4f6;
+      box-shadow: 0 2px 8px rgba(15,23,42,0.08);
+    }
+
+    .fs-btn svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+
+    /* ── Gantt scroll wrapper ── */
+    .gantt-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 100px);
+    }
+
+    /* ── Fixed-width gantt grid (no more shrinking!) ── */
+    .gantt {
+      /* total width = label + (weeks × cell) */
+      width: calc(var(--label-w) + (var(--week-count) * var(--cell-w)));
+      min-width: 100%;
+    }
+
+    .header-row,
+    .task-row {
+      display: flex;
+      align-items: stretch;
+    }
+
+    .header-row {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      background: #f9fafb;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .left-head {
+      width: var(--label-w);
+      min-width: var(--label-w);
+      padding: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      border-right: 1px solid var(--border);
+      position: sticky;
+      left: 0;
+      z-index: 5;
+      background: #f9fafb;
+      flex-shrink: 0;
+    }
+
+    .week-head {
+      width: var(--cell-w);
+      min-width: var(--cell-w);
+      flex-shrink: 0;
+      padding: 10px 2px;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: #374151;
+      border-right: 1px solid #eef2f7;
+    }
+
+    .task-row {
+      min-height: 58px;
+      border-bottom: 1px solid #eef2f7;
+      position: relative;
+    }
+
+    .task-info {
+      width: var(--label-w);
+      min-width: var(--label-w);
+      flex-shrink: 0;
+      padding: 8px 10px;
+      border-right: 1px solid var(--border);
+      position: sticky;
+      left: 0;
+      z-index: 3;
+      background: white;
+    }
+
+    .task-title {
+      margin: 0 0 3px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .task-meta {
+      margin: 0;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.3;
+    }
+
+    .week-cell {
+      width: var(--cell-w);
+      min-width: var(--cell-w);
+      flex-shrink: 0;
+      border-right: 1px solid #f3f4f6;
+      background: white;
+    }
+
+    .task-bar {
+      position: absolute;
+      height: 16px;
+      border-radius: 999px;
+      top: 21px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6px;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: white;
+      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);
+      pointer-events: none;
+    }
+
+    /* Tooltip on hover via the row */
+    .task-row:hover .task-bar {
+      opacity: 0.88;
+    }
+
+    .planned  { background: var(--blue);   }
+    .future   { background: var(--purple); }
+    .complete { background: var(--green);  }
+    .risk     { background: var(--amber);  }
+
+    /* ── Left panel ── */
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      background: #111827;
+      color: white;
+    }
+
+    .button.secondary {
+      background: var(--blue);
+    }
+
+    .phase-editor {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px;
+      margin-bottom: 10px;
+      background: #fbfdff;
+    }
+
+    .phase-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      gap: 8px;
+    }
+
+    .phase-header h3 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .delete-btn {
+      border: none;
+      background: transparent;
+      color: #b91c1c;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #374151;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      background: white;
+    }
+
+    textarea {
+      min-height: 56px;
+      resize: vertical;
+    }
+
+    .hint {
+      font-size: 11px;
+      color: var(--muted);
+      margin: 4px 0 10px;
+    }
+
+    pre {
+      margin: 10px 0 0;
+      background: #111827;
+      color: #f9fafb;
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 10px;
+      line-height: 1.45;
+      overflow: auto;
+    }
+
+    /* ── Fullscreen styles ── */
+    .board:fullscreen,
+    .board:-webkit-full-screen,
+    .board:-moz-full-screen {
+      background: var(--card);
+      border-radius: 0;
+      border: none;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .board:fullscreen .gantt-wrap,
+    .board:-webkit-full-screen .gantt-wrap,
+    .board:-moz-full-screen .gantt-wrap {
+      flex: 1;
+      max-height: none;
+      overflow: auto;
+    }
+
+    /* swap icon in fullscreen */
+    .board:fullscreen .icon-expand,
+    .board:-webkit-full-screen .icon-expand,
+    .board:-moz-full-screen .icon-expand { display: none; }
+
+    .icon-compress { display: none; }
+    .board:fullscreen .icon-compress,
+    .board:-webkit-full-screen .icon-compress,
+    .board:-moz-full-screen .icon-compress { display: inline; }
+
+    @media (max-width: 1100px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .panel, .gantt-wrap {
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <h1 class="title">Compact Gantt Chart Editor</h1>
+      <p class="subtitle">Update phase name, start week, end week, and focus directly from the UI. The chart refreshes automatically.</p>
+    </div>
+
+    <div class="layout">
+      <!-- Left: editor panel -->
+      <div class="panel">
+        <div class="toolbar">
+          <button class="button secondary" id="addPhaseBtn">Add Phase</button>
+          <button class="button" id="exportBtn">Export JSON</button>
+        </div>
+        <div class="hint">Tip: Change the week numbers for each phase. The Gantt chart on the right updates instantly.</div>
+        <div id="editorContainer"></div>
+        <pre id="jsonPreview"></pre>
+      </div>
+
+      <!-- Right: gantt board -->
+      <div class="board" id="ganttBoard">
+        <div class="board-topbar">
+          <div class="legend">
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--blue)"></span>Planned</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--purple)"></span>Future</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--green)"></span>Complete</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--amber)"></span>At Risk</div>
+          </div>
+
+          <button class="fs-btn" id="fsBtn" title="Toggle fullscreen">
+            <!-- expand icon -->
+            <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+              <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+            </svg>
+            <!-- compress icon -->
+            <svg class="icon-compress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/>
+              <line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/>
+            </svg>
+            <span id="fsBtnLabel">Fullscreen</span>
+          </button>
+        </div>
+
+        <div class="gantt-wrap">
+          <div id="gantt" class="gantt"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── Data ──────────────────────────────────────────────────────────────────
+    let ganttData = [
+      { phase:'Phase 0',   startWeek:1,  endWeek:4,  status:'Planned', focus:'Foundation setup: Azure environment, Authentication (Azure AD), CI/CD pipelines.' },
+      { phase:'Phase 1',   startWeek:5,  endWeek:12, status:'Planned', focus:'Setup .NET API layer and high-priority Vertical Slice services (Assessor/Tax).' },
+      { phase:'Phase 2',   startWeek:13, endWeek:18, status:'Planned', focus:'UI design in Figma and replacement of initial screens like Search and List.' },
+      { phase:'Phase 3',   startWeek:19, endWeek:24, status:'Planned', focus:'Replacement of detailed screens and full integration of API with React.' },
+      { phase:'Phase 4/5', startWeek:25, endWeek:30, status:'Future',  focus:'Parallel systems (WinForms + React) and decommissioning legacy UI.' }
+    ];
+
+    // ── DOM refs ──────────────────────────────────────────────────────────────
+    const ganttEl        = document.getElementById('gantt');
+    const editorContainer= document.getElementById('editorContainer');
+    const jsonPreview    = document.getElementById('jsonPreview');
+    const addPhaseBtn    = document.getElementById('addPhaseBtn');
+    const exportBtn      = document.getElementById('exportBtn');
+    const ganttBoard     = document.getElementById('ganttBoard');
+    const fsBtn          = document.getElementById('fsBtn');
+    const fsBtnLabel     = document.getElementById('fsBtnLabel');
+
+    // Fixed cell width — must match CSS --cell-w
+    const CELL_W  = 32;
+    const LABEL_W = 220;
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function statusClass(status) {
+      return { Planned:'planned', Future:'future', Complete:'complete', 'At Risk':'risk' }[status] || 'planned';
+    }
+
+    function escapeHtml(text) {
+      return String(text ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    // ── Gantt render ──────────────────────────────────────────────────────────
+    function renderGantt() {
+      ganttEl.innerHTML = '';
+      const maxWeek = Math.max(30, ...ganttData.map(d => Number(d.endWeek) || 1));
+
+      // Set CSS variable so the gantt element knows its own width
+      ganttEl.style.setProperty('--week-count', maxWeek);
+
+      // Header row
+      const header = document.createElement('div');
+      header.className = 'header-row';
+      header.innerHTML =
+        `<div class="left-head">Phase / Focus</div>` +
+        Array.from({ length: maxWeek }, (_, i) =>
+          `<div class="week-head">W${i + 1}</div>`
+        ).join('');
+      ganttEl.appendChild(header);
+
+      // Task rows
+      ganttData.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'task-row';
+
+        const start = Math.max(1, Number(item.startWeek) || 1);
+        const end   = Math.max(start, Number(item.endWeek) || start);
+
+        // Bar position — perfectly aligned to fixed cell width
+        const barLeft  = LABEL_W + ((start - 1) * CELL_W) + 3;
+        const barWidth = Math.max(((end - start + 1) * CELL_W) - 6, 20);
+
+        row.innerHTML =
+          `<div class="task-info">
+            <h3 class="task-title">${escapeHtml(item.phase)}</h3>
+            <p class="task-meta">Weeks ${start}–${end}<br>${escapeHtml(item.focus)}</p>
+          </div>` +
+          Array.from({ length: maxWeek }, () => `<div class="week-cell"></div>`).join('') +
+          `<div class="task-bar ${statusClass(item.status)}"
+               style="left:${barLeft}px; width:${barWidth}px;"
+               title="${escapeHtml(item.phase)}: ${escapeHtml(item.focus)}">
+            ${escapeHtml(item.phase)}
+          </div>`;
+
+        ganttEl.appendChild(row);
+      });
+    }
+
+    // ── Editor render ─────────────────────────────────────────────────────────
+    function renderEditors() {
+      editorContainer.innerHTML = '';
+
+      ganttData.forEach((item, index) => {
+        const editor = document.createElement('div');
+        editor.className = 'phase-editor';
+        editor.innerHTML = `
+          <div class="phase-header">
+            <h3>${escapeHtml(item.phase || `Phase ${index + 1}`)}</h3>
+            <button class="delete-btn" data-index="${index}">Delete</button>
+          </div>
+          <div class="grid">
+            <div class="field">
+              <label>Phase Name</label>
+              <input type="text" value="${escapeHtml(item.phase)}" data-index="${index}" data-field="phase" />
+            </div>
+            <div class="field">
+              <label>Status</label>
+              <select data-index="${index}" data-field="status">
+                <option value="Planned"  ${item.status==='Planned'  ? 'selected' : ''}>Planned</option>
+                <option value="Future"   ${item.status==='Future'   ? 'selected' : ''}>Future</option>
+                <option value="Complete" ${item.status==='Complete' ? 'selected' : ''}>Complete</option>
+                <option value="At Risk"  ${item.status==='At Risk'  ? 'selected' : ''}>At Risk</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Start Week</label>
+              <input type="number" min="1" value="${item.startWeek}" data-index="${index}" data-field="startWeek" />
+            </div>
+            <div class="field">
+              <label>End Week</label>
+              <input type="number" min="1" value="${item.endWeek}" data-index="${index}" data-field="endWeek" />
+            </div>
+            <div class="field full">
+              <label>Focus</label>
+              <textarea data-index="${index}" data-field="focus">${escapeHtml(item.focus)}</textarea>
+            </div>
+          </div>`;
+        editorContainer.appendChild(editor);
+      });
+
+      editorContainer.querySelectorAll('input, textarea, select').forEach(el => {
+        el.addEventListener('input',  onFieldChange);
+        el.addEventListener('change', onFieldChange);
+      });
+
+      editorContainer.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          ganttData.splice(Number(btn.dataset.index), 1);
+          refreshAll();
+        });
+      });
+    }
+
+    // ── Field change handler ──────────────────────────────────────────────────
+    function onFieldChange(e) {
+      const index = Number(e.target.dataset.index);
+      const field = e.target.dataset.field;
+      let value   = e.target.value;
+
+      if (field === 'startWeek' || field === 'endWeek') {
+        value = Math.max(1, Number(value) || 1);
+      }
+      ganttData[index][field] = value;
+
+      if (field === 'startWeek' && ganttData[index].endWeek < value) ganttData[index].endWeek = value;
+      if (field === 'endWeek'   && ganttData[index].startWeek > value) ganttData[index].startWeek = value;
+
+      refreshAll(false);
+    }
+
+    // ── Refresh ───────────────────────────────────────────────────────────────
+    function refreshAll(rebuildEditors = true) {
+      if (rebuildEditors) renderEditors();
+      renderGantt();
+      jsonPreview.textContent = JSON.stringify(ganttData, null, 2);
+    }
+
+    // ── Export ────────────────────────────────────────────────────────────────
+    function exportJson() {
+      const blob = new Blob([JSON.stringify(ganttData, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = 'compact-gantt-data.json'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // ── Fullscreen ────────────────────────────────────────────────────────────
+    function toggleFullscreen() {
+      const el = ganttBoard;
+      const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
+
+      if (!isFs) {
+        (el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen).call(el);
+      } else {
+        (document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen).call(document);
+      }
+    }
+
+    function syncFsButton() {
+      const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
+      fsBtnLabel.textContent = isFs ? 'Exit Fullscreen' : 'Fullscreen';
+    }
+
+    fsBtn.addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange',       syncFsButton);
+    document.addEventListener('webkitfullscreenchange', syncFsButton);
+    document.addEventListener('mozfullscreenchange',    syncFsButton);
+
+    // Also allow Escape key awareness (browser handles exit, we just sync label)
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') syncFsButton();
+    });
+
+    // ── Boot ──────────────────────────────────────────────────────────────────
+    addPhaseBtn.addEventListener('click', () => {
+      ganttData.push({ phase:`Phase ${ganttData.length}`, startWeek:1, endWeek:2, status:'Planned', focus:'Add focus here.' });
+      refreshAll();
+    });
+    exportBtn.addEventListener('click', exportJson);
+
+    refreshAll();
+  </script>
+</body>
+</html>
